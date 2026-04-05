@@ -1,0 +1,12 @@
+Conversation history:
+{history_text}
+
+Retrieved context:
+{context_text}
+
+User question:
+{question}
+
+Instructions:
+- Use the retrieved context when it is relevant.
+- If the answer is not supported by the retrieved context, say so clearly.

@@ -1,0 +1,192 @@
+services:
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: linguacomai_postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-linguacomai}
+      POSTGRES_USER: ${POSTGRES_USER:-linguacomai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-linguacomai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-linguacomai} -d ${POSTGRES_DB:-linguacomai}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: linguacomai_ui
+    working_dir: /workspace/ui
+    env_file:
+      - .env
+    volumes:
+      - .:/workspace
+    command: >
+      bash -c "streamlit run intro.py --server.port=8501 --server.address=0.0.0.0"
+    ports:
+      - "8501:8501"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      retrieval:
+        condition: service_healthy
+      system-prompts:
+        condition: service_healthy
+      hf:
+        condition: service_healthy
+      trainer:
+        condition: service_healthy
+    networks:
+      - app_net
+
+  retrieval:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: linguacomai_retrieval
+    working_dir: /workspace/services
+    env_file:
+      - .env
+    volumes:
+      - .:/workspace
+      - faiss_data:/data
+      - corpus_data:/corpus
+    command: >
+      bash -c "uvicorn retrieval:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      hf:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  trainer:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: linguacomai_trainer
+    working_dir: /workspace/services
+    env_file:
+      - .env
+    volumes:
+      - .:/workspace
+      - corpus_data:/corpus
+      - training_output:/training_output
+      - hf_cache:/root/.cache/huggingface
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: >
+      bash -c "uvicorn trainer:app --host 0.0.0.0 --port 8100"
+    depends_on:
+      hf:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  system-prompts:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: linguacomai_system_prompts
+    working_dir: /workspace/services
+    env_file:
+      - .env
+    volumes:
+      - .:/workspace
+    command: >
+      bash -c "uvicorn system_prompts:app --host 0.0.0.0 --port 8300"
+    depends_on:
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8300/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  hf:
+    build:
+      context: .
+      dockerfile: Dockerfile.python
+    container_name: linguacomai_hf
+    working_dir: /workspace/services
+    env_file:
+      - .env
+    volumes:
+      - .:/workspace
+      - training_output:/training_output
+      - hf_cache:/root/.cache/huggingface
+    command: >
+      bash -c "uvicorn hf_models:app --host 0.0.0.0 --port 8200"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8200/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: linguacomai_ollama
+    env_file:
+      - .env
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - >
+        ollama serve & server_pid=$$!; sleep 5;
+        ollama pull ${OLLAMA_CHAT_MODEL:-llama3:8b};
+        if [ -n "${OLLAMA_SYSTEM_PROMPT_MODEL:-}" ] && [ "${OLLAMA_SYSTEM_PROMPT_MODEL:-}" != "${OLLAMA_CHAT_MODEL:-llama3:8b}" ]; then ollama pull ${OLLAMA_SYSTEM_PROMPT_MODEL}; fi;
+        wait $$server_pid
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  faiss_data:
+  postgres_data:
+  ollama_data:
+  corpus_data:
+    name: linguacomai_corpus_data
+  training_output:
+    name: linguacomai_training_output
+  hf_cache:
+    name: linguacomai_hf_cache
+
+networks:
+  app_net:
+    driver: bridge

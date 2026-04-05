@@ -1,0 +1,16 @@
+Read the document and return only one JSON object.
+
+Required keys:
+- tone
+- personality
+- english_nuances
+- methodology
+- response_style
+- constraints
+- summary
+
+Rules:
+- Every value except constraints must be a concise string.
+- constraints must be an array of short strings.
+- Do not include extra keys.
+- Do not wrap the JSON in markdown fences.

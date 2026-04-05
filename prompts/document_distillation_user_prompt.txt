@@ -1,0 +1,4 @@
+Document name: {filename}
+
+Document text:
+{content}

@@ -1,0 +1,17 @@
+streamlit
+requests
+python-dotenv
+python-docx
+fastapi
+uvicorn[standard]
+faiss-cpu
+numpy
+tiktoken
+psycopg[binary]
+docker
+torch
+transformers
+accelerate
+peft
+safetensors
+huggingface_hub
